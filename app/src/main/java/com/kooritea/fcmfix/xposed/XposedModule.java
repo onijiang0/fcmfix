@@ -365,8 +365,10 @@ public abstract class XposedModule {
 
     protected boolean isFCMAction(String action) {
         return action != null && (action.endsWith(".android.c2dm.intent.RECEIVE") ||
-                "com.google.firebase.MESSAGING_EVENT".equals(action) ||
-                "com.google.firebase.INSTANCE_ID_EVENT".equals(action));
+                action.contains("com.google.firebase.MESSAGING_EVENT") ||
+                action.contains("com.google.firebase.INSTANCE_ID_EVENT") ||
+                action.contains("MESSAGING_EVENT") ||
+                action.contains("c2dm.intent.RECEIVE"));
     }
 
     protected boolean isFCMIntent(Intent intent) {

@@ -7,6 +7,7 @@ import com.kooritea.fcmfix.libxposed.XposedHelpers;
 import com.kooritea.fcmfix.xposed.AutoStartFix;
 import com.kooritea.fcmfix.xposed.BroadcastFix;
 import com.kooritea.fcmfix.xposed.GmsDeliveryFix;
+import com.kooritea.fcmfix.xposed.GmsKeepAliveFix;
 import com.kooritea.fcmfix.xposed.HyperOsGreezeFix;
 import com.kooritea.fcmfix.xposed.KeepNotification;
 import com.kooritea.fcmfix.xposed.MiuiLocalNotificationFix;
@@ -31,6 +32,7 @@ public class XposedMain extends io.github.libxposed.api.XposedModule {
         safeInit(() -> new KeepNotification(classLoader), "KeepNotification");
         safeInit(() -> new OplusProxyFix(classLoader), "OplusProxyFix");
         safeInit(() -> new HyperOsGreezeFix(classLoader), "HyperOsGreezeFix");
+        safeInit(() -> new GmsKeepAliveFix(classLoader), "GmsKeepAliveFix");
         // system_server 中 attachBaseContext 可能装得太晚，主动拿系统上下文
         initSystemServerContext(classLoader);
     }

@@ -480,7 +480,7 @@ public class HyperOsGreezeFix extends XposedModule {
                         }
                         try {
                             XposedHelpers.callMethod(pem, "addToTemporaryAllowList",
-                                    target, reason, "FCMFix", 60000L);
+                                    target, reason, "FCMFix", 5 * 60 * 1000L);
                             printLog("PowerExemption 临时白名单: " + target, true);
                         } catch (Throwable e1) {
                             try {
