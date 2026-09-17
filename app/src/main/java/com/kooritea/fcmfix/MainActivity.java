@@ -79,8 +79,19 @@ public class MainActivity extends AppCompatActivity {
                     xposedService = service;
                     runOnUiThread(() -> {
                         loadConfigFromRemotePreferences();
-                        if (appListAdapter != null) {
-                            appListAdapter.notifyDataSetChanged();
+                        RecyclerView rv = findViewById(R.id.recycler_view);
+                        if (appListAdapter == null && rv != null) {
+                            appListAdapter = new AppListAdapter();
+                            rv.setAdapter(appListAdapter);
+                            View pb = findViewById(R.id.progress_bar);
+                            if (pb != null) {
+                                pb.setVisibility(View.GONE);
+                            }
+                            rv.setVisibility(View.VISIBLE);
+                        } else if (appListAdapter != null) {
+                            // 远程配置合并后重建列表，保证勾选状态正确
+                            appListAdapter = new AppListAdapter();
+                            rv.setAdapter(appListAdapter);
                         }
                     });
                 }
@@ -123,15 +134,49 @@ public class MainActivity extends AppCompatActivity {
             loadConfigFromLocalJson();
             return;
         }
-        this.allowList.clear();
-        this.allowList.addAll(pref.getStringSet("allowList", new HashSet<>()));
+        // 本地已有数据时不要被远程空集合清掉（远程 SharedPreferences 在部分框架上会读到空）
+        Set<String> localSnapshot = new HashSet<>(this.allowList);
+        Set<String> remoteList = pref.getStringSet("allowList", null);
+        if (remoteList != null && !remoteList.isEmpty()) {
+            this.allowList.clear();
+            this.allowList.addAll(remoteList);
+            this.allowList.addAll(localSnapshot);
+        } else if (!localSnapshot.isEmpty()) {
+            this.allowList.clear();
+            this.allowList.addAll(localSnapshot);
+            Log.i("loadRemoteConfig", "远程 allowList 为空，保留本地 " + localSnapshot.size() + " 项");
+        } else {
+            this.allowList.clear();
+        }
         try {
             this.config.put("allowList", new JSONArray(this.allowList));
-            this.config.put("disableAutoCleanNotification", pref.getBoolean("disableAutoCleanNotification", false));
-            this.config.put("includeIceBoxDisableApp", pref.getBoolean("includeIceBoxDisableApp", false));
-            this.config.put("noResponseNotification", pref.getBoolean("noResponseNotification", false));
+            // 远程开关若为默认 false 而本地为 true，优先本地
+            boolean remoteClean = pref.getBoolean("disableAutoCleanNotification", false);
+            boolean remoteIce = pref.getBoolean("includeIceBoxDisableApp", false);
+            boolean remoteNoResp = pref.getBoolean("noResponseNotification", false);
+            boolean localClean = this.config.optBoolean("disableAutoCleanNotification", false);
+            boolean localIce = this.config.optBoolean("includeIceBoxDisableApp", false);
+            boolean localNoResp = this.config.optBoolean("noResponseNotification", false);
+            this.config.put("disableAutoCleanNotification", remoteClean || localClean);
+            this.config.put("includeIceBoxDisableApp", remoteIce || localIce);
+            this.config.put("noResponseNotification", remoteNoResp || localNoResp);
         } catch (JSONException e) {
             Log.e("loadRemoteConfig", e.toString());
+        }
+        // 回写，保证远程与本地一致
+        if (!localSnapshot.isEmpty() && (remoteList == null || remoteList.isEmpty())) {
+            writeLocalConfigJson();
+            try {
+                pref.edit()
+                        .putBoolean("init", true)
+                        .putStringSet("allowList", new HashSet<>(this.allowList))
+                        .putBoolean("disableAutoCleanNotification", this.config.getBoolean("disableAutoCleanNotification"))
+                        .putBoolean("includeIceBoxDisableApp", this.config.getBoolean("includeIceBoxDisableApp"))
+                        .putBoolean("noResponseNotification", this.config.getBoolean("noResponseNotification"))
+                        .apply();
+            } catch (Throwable e) {
+                Log.e("loadRemoteConfig", "回写远程失败: " + e);
+            }
         }
     }
 
@@ -304,6 +349,8 @@ public class MainActivity extends AppCompatActivity {
         RecyclerView recyclerView = findViewById(R.id.recycler_view);
         recyclerView.setLayoutManager(new LinearLayoutManager(this));
 
+        // 先读本地 config.json，避免远程 SharedPreferences 未就绪时勾选丢失
+        loadConfigFromLocalJson();
         initXposedService();
 
         try {
@@ -314,11 +361,15 @@ public class MainActivity extends AppCompatActivity {
         }
 
         new Handler().postDelayed(() -> {
-            appListAdapter = new AppListAdapter();
-            recyclerView.setAdapter(appListAdapter);
-            findViewById(R.id.progress_bar).setVisibility(View.GONE);
-            recyclerView.setVisibility(View.VISIBLE);
-        }, 1000);
+            if (appListAdapter == null) {
+                appListAdapter = new AppListAdapter();
+                recyclerView.setAdapter(appListAdapter);
+                findViewById(R.id.progress_bar).setVisibility(View.GONE);
+                recyclerView.setVisibility(View.VISIBLE);
+            } else {
+                appListAdapter.notifyDataSetChanged();
+            }
+        }, 300);
     }
 
     @Nullable
@@ -426,12 +477,17 @@ public class MainActivity extends AppCompatActivity {
             }
             if("全选包含 FCM 的应用".equals(item.getTitle())){
                 item.setOnMenuItemClickListener(menuItem -> {
-                    for(AppInfo appInfo : appListAdapter.mAppList){
-                        if(appInfo.includeFcm){
-                            addAppInAllowList(appInfo.packageName);
+                    if (appListAdapter == null) {
+                        return false;
+                    }
+                    for (AppInfo appInfo : appListAdapter.mAppList) {
+                        if (appInfo.includeFcm) {
+                            this.allowList.add(appInfo.packageName);
                             appInfo.isAllow = true;
                         }
                     }
+                    // 批量写一次，避免逐项 updateConfig 被打断
+                    this.updateConfig();
                     appListAdapter.notifyDataSetChanged();
                     return false;
                 });
