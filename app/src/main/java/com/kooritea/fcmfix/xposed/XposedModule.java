@@ -134,18 +134,17 @@ public abstract class XposedModule {
     }
 
     protected static void printLog(String text, Boolean isDiagnosticsLog) {
-        Log.d(TAG, text);
-        if (isDiagnosticsLog) {
-            Intent log = new Intent("com.kooritea.fcmfix.log");
-            log.putExtra("text", "[" + getSelfPackageName() + "]" + text);
-
+        String line = "[" + getSelfPackageName() + "]" + text;
+        Log.i(TAG, line);
+        XposedBridge.log("[fcmfix] " + line);
+        if (isDiagnosticsLog && context != null) {
             try {
-                context.sendBroadcast(log);
-            } catch (Throwable e) {
-                XposedBridge.log("[fcmfix] [" + getSelfPackageName() + "]" + text);
+                Intent log = new Intent("com.kooritea.fcmfix.log");
+                log.putExtra("text", line);
+                // system_server 必须带 UserHandle，否则只打 without a qualified user 警告
+                context.sendBroadcastAsUser(log, android.os.UserHandle.ALL);
+            } catch (Throwable ignored) {
             }
-        } else {
-            XposedBridge.log("[fcmfix] [" + getSelfPackageName() + "]" + text);
         }
     }
 
