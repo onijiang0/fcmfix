@@ -31,8 +31,10 @@ public class XposedMain extends io.github.libxposed.api.XposedModule {
         safeInit(() -> new AutoStartFix(classLoader), "AutoStartFix");
         safeInit(() -> new KeepNotification(classLoader), "KeepNotification");
         safeInit(() -> new OplusProxyFix(classLoader), "OplusProxyFix");
-        safeInit(() -> new HyperOsGreezeFix(classLoader), "HyperOsGreezeFix");
-        safeInit(() -> new GmsKeepAliveFix(classLoader), "GmsKeepAliveFix");
+        // HyperOsGreezeFix / GmsKeepAliveFix 激进 hook 会干扰其它应用 FCM 投递
+        // （现象：仅 Telegram 能推，TikTok/Gmail 不再收到）。默认关闭，保核心广播路径。
+        // safeInit(() -> new HyperOsGreezeFix(classLoader), "HyperOsGreezeFix");
+        // safeInit(() -> new GmsKeepAliveFix(classLoader), "GmsKeepAliveFix");
         // system_server 中 attachBaseContext 可能装得太晚，主动拿系统上下文
         initSystemServerContext(classLoader);
     }
@@ -50,10 +52,6 @@ public class XposedMain extends io.github.libxposed.api.XposedModule {
         if ("com.miui.powerkeeper".equals(param.getPackageName()) && param.isFirstPackage()) {
             XposedModule.setSelfPackageName("com.miui.powerkeeper");
             safeInit(() -> new PowerkeeperFix(param.getClassLoader()), "PowerkeeperFix");
-            safeInit(() -> {
-                HyperOsGreezeFix greeze = new HyperOsGreezeFix(param.getClassLoader());
-                greeze.hookPowerkeeper(param.getClassLoader());
-            }, "HyperOsGreezeFix#powerkeeper");
         }
     }
 
