@@ -456,28 +456,7 @@ public class GmsKeepAliveFix extends XposedModule {
                         if (!gms) {
                             return;
                         }
-                        // 把 flags 置为 exact + allowWhileIdle（若存在 int flags 参数）
-                        try {
-                            Class<?>[] pts = m.getParameterTypes();
-                            for (int i = 0; i < pts.length; i++) {
-                                if (pts[i] == int.class && param.args[i] instanceof Integer) {
-                                    int flags = (Integer) param.args[i];
-                                    // RTC_WAKEUP 等 type 在前；flags 常是 setExact 的第二个 int
-                                    // 只改看起来像 flags 的（含 WINDOW_EXACT / ALLOW_WHILE_IDLE 位）
-                                    // ALLOW_WHILE_IDLE = 0x200000 (API 23+)
-                                    int ALLOW_WHILE_IDLE = 0x200000;
-                                    int WINDOW_EXACT = 0; // exact 由 setExact 保证
-                                    if ((flags & 0xFF) == flags || flags == 0 || (flags & ALLOW_WHILE_IDLE) == 0) {
-                                        // 保守：若值较小像 type/flags，尝试加 ALLOW_WHILE_IDLE
-                                        if (flags >= 0 && flags < 0x1000000) {
-                                            param.args[i] = flags | ALLOW_WHILE_IDLE;
-                                            printLog("Alarm GMS flags+ALLOW_WHILE_IDLE @" + i + " -> " + (flags | ALLOW_WHILE_IDLE), true);
-                                        }
-                                    }
-                                }
-                            }
-                        } catch (Throwable ignored) {
-                        }
+                        // 不要乱改 flags：GMS 注册/checkin 闹钟被改坏会导致拿不到 FCM token
                         printLog("Alarm 捕获 GMS 闹钟: " + m.getName(), true);
                     }
                 });

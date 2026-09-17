@@ -502,54 +502,69 @@ public class HyperOsGreezeFix extends XposedModule {
     }
 
     // powerkeeper 进程
+    // 注意：不要 no-op initGmsChain / updateGmsNetWork —— 那是 GMS 建网/注册 FCM 的正向路径，
+    // 拦掉会导致推特等应用拿不到 FCM token（原版 fcmfix 也未拦这些）。
     public void hookPowerkeeper(ClassLoader powerkeeperClassLoader) {
         try {
             Class<?> gmsObserver = XposedHelpers.findClassIfExists(
                     "com.miui.powerkeeper.utils.GmsObserver", powerkeeperClassLoader);
             if (gmsObserver != null) {
-                for (String n : new String[]{"initGmsChain", "updateGmsAlarm", "updateGmsNetWork", "updateGoogleReletivesWakelock"}) {
-                    hookMethodQuietOn(powerkeeperClassLoader, gmsObserver, n);
+                // 只拦「限流/掐网」类：执行完后再确认 GMS 不被断网
+                for (String n : new String[]{"updateGoogleReletivesWakelock"}) {
+                    Method m = XposedUtils.tryFindMethodMostParam(gmsObserver, n);
+                    if (m == null) {
+                        continue;
+                    }
+                    try {
+                        com.kooritea.fcmfix.libxposed.XposedBridge.deoptimize(m);
+                    } catch (Throwable ignored) {
+                    }
+                    com.kooritea.fcmfix.libxposed.XposedBridge.hookMethod(m, new XC_MethodHook() {
+                        @Override
+                        protected void afterHookedMethod(MethodHookParam param) {
+                            if (!isBootComplete) {
+                                return;
+                            }
+                            printLog("HyperGreeze powerkeeper 观察: " + gmsObserver.getSimpleName() + "#" + n + " 已执行", true);
+                        }
+                    });
+                    printLog("HyperGreeze 已挂接 powerkeeper " + gmsObserver.getSimpleName() + "#" + n + " (仅观察)");
                 }
-            }
-            Class<?> netd = XposedHelpers.findClassIfExists(
-                    "com.miui.powerkeeper.utils.NetdExecutor", powerkeeperClassLoader);
-            if (netd != null) {
-                hookMethodQuietOn(powerkeeperClassLoader, netd, "initGmsChain");
             }
             Class<?> doze = XposedHelpers.findClassIfExists(
                     "com.miui.powerkeeper.provider.GlobalFeatureConfigureHelper", powerkeeperClassLoader);
             if (doze != null) {
-                hookMethodQuietOn(powerkeeperClassLoader, doze, "getDozeWhiteListApps");
+                Method m = XposedUtils.tryFindMethodMostParam(doze, "getDozeWhiteListApps");
+                if (m != null) {
+                    try {
+                        com.kooritea.fcmfix.libxposed.XposedBridge.deoptimize(m);
+                    } catch (Throwable ignored) {
+                    }
+                    com.kooritea.fcmfix.libxposed.XposedBridge.hookMethod(m, new XC_MethodHook() {
+                        @Override
+                        protected void afterHookedMethod(MethodHookParam param) {
+                            if (!isBootComplete || param.getResult() == null) {
+                                return;
+                            }
+                            Object result = param.getResult();
+                            if (result instanceof Collection) {
+                                @SuppressWarnings("unchecked")
+                                Collection<Object> list = (Collection<Object>) result;
+                                if (!list.contains(GMS)) {
+                                    try {
+                                        list.add(GMS);
+                                        printLog("dozeWhiteList +gms", true);
+                                    } catch (Throwable ignored) {
+                                    }
+                                }
+                            }
+                        }
+                    });
+                    printLog("HyperGreeze 已挂接 powerkeeper GlobalFeatureConfigureHelper#getDozeWhiteListApps");
+                }
             }
         } catch (Throwable e) {
             printLog("HyperOsGreezeFix powerkeeper error: " + e.getMessage());
         }
-    }
-
-    private void hookMethodQuietOn(ClassLoader cl, Class<?> clazz, String name) {
-        Method m = XposedUtils.tryFindMethodMostParam(clazz, name);
-        if (m == null) {
-            return;
-        }
-        try {
-            com.kooritea.fcmfix.libxposed.XposedBridge.deoptimize(m);
-        } catch (Throwable ignored) {
-        }
-        // GMS 限流相关：直接 no-op，避免 HyperOS 掐 GMS 心跳/网络/wakelock
-        com.kooritea.fcmfix.libxposed.XposedBridge.hookMethod(m, new XC_MethodHook() {
-            @Override
-            protected void beforeHookedMethod(MethodHookParam param) {
-                if (!isBootComplete) {
-                    return;
-                }
-                // getDozeWhiteListApps 需要返回含 GMS 的列表，不能 no-op
-                if ("getDozeWhiteListApps".equals(name)) {
-                    return;
-                }
-                printLog("HyperGreeze powerkeeper no-op: " + clazz.getSimpleName() + "#" + name, true);
-                param.setResult(null);
-            }
-        });
-        printLog("HyperGreeze 已挂接 powerkeeper " + clazz.getSimpleName() + "#" + name);
     }
 }
