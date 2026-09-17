@@ -17,6 +17,7 @@ import android.graphics.drawable.Drawable;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.SystemClock;
+import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
 import android.widget.Button;
@@ -296,33 +297,71 @@ public class ReconnectManagerFix extends XposedModule {
     }
 
     private void addButton(){
-        XposedHelpers.findAndHookMethod("com.google.android.gms.gcm.GcmChimeraDiagnostics", classLoader, "onCreate", Bundle.class, new XC_MethodHook() {
-            @SuppressLint("SetTextI18n")
-            @Override
-            protected void afterHookedMethod(final MethodHookParam param) {
-                ViewGroup viewGroup = ((Window)XposedHelpers.callMethod(param.thisObject, "getWindow")).getDecorView().findViewById(android.R.id.content);
-                LinearLayout linearLayout = (LinearLayout)viewGroup.getChildAt(0);
-                LinearLayout linearLayout2 = (LinearLayout)linearLayout.getChildAt(0);
+        try {
+            XposedHelpers.findAndHookMethod("com.google.android.gms.gcm.GcmChimeraDiagnostics", classLoader, "onCreate", Bundle.class, new XC_MethodHook() {
+                @SuppressLint("SetTextI18n")
+                @Override
+                protected void afterHookedMethod(final MethodHookParam param) {
+                    try {
+                        if (!(param.thisObject instanceof android.app.Activity)) {
+                            printLog("GcmChimeraDiagnostics 不是 Activity，跳过按钮注入");
+                            return;
+                        }
+                        android.app.Activity activity = (android.app.Activity) param.thisObject;
+                        Window window = activity.getWindow();
+                        if (window == null) {
+                            return;
+                        }
+                        ViewGroup content = window.getDecorView().findViewById(android.R.id.content);
+                        if (content == null || content.getChildCount() == 0) {
+                            return;
+                        }
+                        View child0 = content.getChildAt(0);
+                        if (!(child0 instanceof LinearLayout)) {
+                            printLog("GcmDiagnostics 布局变化，跳过按钮注入");
+                            return;
+                        }
+                        LinearLayout linearLayout = (LinearLayout) child0;
+                        if (linearLayout.getChildCount() == 0 || !(linearLayout.getChildAt(0) instanceof LinearLayout)) {
+                            return;
+                        }
+                        LinearLayout linearLayout2 = (LinearLayout) linearLayout.getChildAt(0);
 
-                Button reConnectButton = new Button((ContextWrapper)param.thisObject);
-                reConnectButton.setText("RECONNECT");
-                reConnectButton.setOnClickListener(view -> {
-                    context.sendBroadcast(new Intent("com.google.android.intent.action.GCM_RECONNECT"));
-                    printLog("Send broadcast GCM_RECONNECT", true);
-                });
-                linearLayout2.addView(reConnectButton);
+                        Button reConnectButton = new Button(activity);
+                        reConnectButton.setText("RECONNECT");
+                        reConnectButton.setOnClickListener(view -> {
+                            try {
+                                context.sendBroadcast(new Intent("com.google.android.intent.action.GCM_RECONNECT"));
+                                printLog("Send broadcast GCM_RECONNECT", true);
+                            } catch (Throwable e) {
+                                printLog("GCM_RECONNECT failed: " + e.getMessage());
+                            }
+                        });
+                        linearLayout2.addView(reConnectButton);
 
-                Button openFcmFixButton = new Button((ContextWrapper)param.thisObject);
-                openFcmFixButton.setText("打开FCMFIX");
-                openFcmFixButton.setOnClickListener(view -> {
-                    Intent intent = new Intent(Intent.ACTION_VIEW);
-                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                    intent.setPackage("com.kooritea.fcmfix");
-                    intent.setComponent(new ComponentName("com.kooritea.fcmfix","com.kooritea.fcmfix.MainActivity"));
-                    context.startActivity(intent);
-                });
-                linearLayout2.addView(openFcmFixButton);
-            }
-        });
+                        Button openFcmFixButton = new Button(activity);
+                        openFcmFixButton.setText("打开FCMFIX");
+                        openFcmFixButton.setOnClickListener(view -> {
+                            try {
+                                Intent intent = new Intent(Intent.ACTION_VIEW);
+                                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                                intent.setPackage("com.kooritea.fcmfix");
+                                intent.setComponent(new ComponentName("com.kooritea.fcmfix", "com.kooritea.fcmfix.MainActivity"));
+                                context.startActivity(intent);
+                            } catch (Throwable e) {
+                                printLog("open fcmfix failed: " + e.getMessage());
+                            }
+                        });
+                        linearLayout2.addView(openFcmFixButton);
+                        printLog("GcmDiagnostics 按钮注入成功", true);
+                    } catch (Throwable e) {
+                        // UI 注入失败不影响推送核心逻辑
+                        printLog("GcmDiagnostics 按钮注入失败: " + e);
+                    }
+                }
+            });
+        } catch (Throwable e) {
+            printLog("addButton hook 失败: " + e.getMessage());
+        }
     }
 }

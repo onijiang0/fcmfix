@@ -183,33 +183,39 @@ public final class XposedHelpers {
     private static Method findBestMethod(Class<?> clazz, String methodName, Object[] args) {
         Method best = null;
         int bestScore = -1;
-        for (Method m : clazz.getDeclaredMethods()) {
-            if (!m.getName().equals(methodName)) {
-                continue;
-            }
-            Class<?>[] pts = m.getParameterTypes();
-            if (pts.length != args.length) {
-                continue;
-            }
-            int score = 0;
-            boolean ok = true;
-            for (int i = 0; i < pts.length; i++) {
-                Object arg = args[i];
-                if (arg == null) {
+        // 沿继承链查找：getWindow 等在 Activity 基类，GcmChimeraDiagnostics 本身没有声明
+        for (Class<?> c = clazz; c != null; c = c.getSuperclass()) {
+            for (Method m : c.getDeclaredMethods()) {
+                if (!m.getName().equals(methodName)) {
                     continue;
                 }
-                Class<?> boxed = boxPrimitive(pts[i]);
-                if (!boxed.isAssignableFrom(arg.getClass())) {
-                    ok = false;
-                    break;
+                Class<?>[] pts = m.getParameterTypes();
+                if (pts.length != args.length) {
+                    continue;
                 }
-                if (boxed == arg.getClass()) {
-                    score++;
+                int score = 0;
+                boolean ok = true;
+                for (int i = 0; i < pts.length; i++) {
+                    Object arg = args[i];
+                    if (arg == null) {
+                        continue;
+                    }
+                    Class<?> boxed = boxPrimitive(pts[i]);
+                    if (!boxed.isAssignableFrom(arg.getClass())) {
+                        ok = false;
+                        break;
+                    }
+                    if (boxed == arg.getClass()) {
+                        score++;
+                    }
+                }
+                if (ok && score >= bestScore) {
+                    best = m;
+                    bestScore = score;
                 }
             }
-            if (ok && score >= bestScore) {
-                best = m;
-                bestScore = score;
+            if (best != null) {
+                break;
             }
         }
         if (best == null) {
