@@ -116,9 +116,10 @@ public class ReconnectManagerFix extends XposedModule {
             printLog("fcmfix_config init", true);
             SharedPreferences.Editor editor = sharedPreferences.edit();
             editor.putBoolean("isInit", true);
-            editor.putBoolean("enable", false);
-            editor.putLong("heartbeatInterval", 0L);
-            editor.putLong("reconnInterval", 0L);
+            // 默认锁 280s 心跳：GMS 原装 530s 在国产路由/NAT 上易 Close err:30
+            editor.putBoolean("enable", true);
+            editor.putLong("heartbeatInterval", 280000L);
+            editor.putLong("reconnInterval", 120000L);
             editor.putString("gms_version", versionName);
             editor.putLong("gms_version_code", versionCode);
             editor.putString("config_version", configVersion);
@@ -142,8 +143,18 @@ public class ReconnectManagerFix extends XposedModule {
             return;
         }
         if (!sharedPreferences.getBoolean("enable", false)) {
-            printLog("当前配置文件enable标识为false，FCMFIX退出", true);
-            return;
+            long hb = sharedPreferences.getLong("heartbeatInterval", 0L);
+            if (hb <= 1000) {
+                printLog("心跳未配置，自动写入 280s", true);
+                sharedPreferences.edit()
+                        .putBoolean("enable", true)
+                        .putLong("heartbeatInterval", 280000L)
+                        .putLong("reconnInterval", 120000L)
+                        .apply();
+            } else {
+                printLog("当前配置文件enable标识为false，FCMFIX退出", true);
+                return;
+            }
         }
         startHook();
     }

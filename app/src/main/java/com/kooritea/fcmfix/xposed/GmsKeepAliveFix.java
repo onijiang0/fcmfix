@@ -44,6 +44,57 @@ public class GmsKeepAliveFix extends XposedModule {
         hookNetworkPolicy();
         hookAmsServiceStart();
         hookScreenOffProtection();
+        hookBroadcastColdStart();
+    }
+
+    /** c2dm 到 allowList 时主动拉起死进程，修 No response to broadcast。 */
+    private void hookBroadcastColdStart() {
+        Class<?> ams = XposedHelpers.findClassIfExists("com.android.server.am.ActivityManagerService", classLoader);
+        if (ams == null) {
+            return;
+        }
+        for (String mn : new String[]{"broadcastIntentWithFeature", "broadcastIntent"}) {
+            Method m = XposedUtils.tryFindMethodMostParam(ams, mn);
+            if (m == null) {
+                continue;
+            }
+            int intentIdx = -1;
+            Class<?>[] types = m.getParameterTypes();
+            for (int i = 0; i < types.length; i++) {
+                if (types[i] == Intent.class) {
+                    intentIdx = i;
+                    break;
+                }
+            }
+            if (intentIdx < 0) {
+                continue;
+            }
+            final int idx = intentIdx;
+            XposedBridge.hookMethod(m, new XC_MethodHook() {
+                @Override
+                protected void beforeHookedMethod(MethodHookParam param) {
+                    if (!isBootComplete || param.args == null || !(param.args[idx] instanceof Intent)) {
+                        return;
+                    }
+                    Intent intent = (Intent) param.args[idx];
+                    if (!"com.google.android.c2dm.intent.RECEIVE".equals(intent.getAction())
+                            && (intent.getAction() == null || !intent.getAction().contains("c2dm"))) {
+                        return;
+                    }
+                    String pkg = intent.getComponent() != null
+                            ? intent.getComponent().getPackageName() : intent.getPackage();
+                    if (pkg == null || isGms(pkg)) {
+                        return;
+                    }
+                    if (allowList != null && allowList.contains(pkg)) {
+                        intent.addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES);
+                        forceStartProcess(pkg);
+                        printLog("broadcast cold-start " + pkg, true);
+                    }
+                }
+            });
+            printLog("KeepAlive 已挂接 AMS#" + mn + " (cold-start)");
+        }
     }
 
     private boolean screenOffKeepAliveRunning = false;
@@ -225,6 +276,19 @@ public class GmsKeepAliveFix extends XposedModule {
         }
         XposedBridge.hookMethod(m, hook);
         printLog("KeepAlive 已挂接 " + clazz.getSimpleName() + "#" + name);
+    }
+
+    /**
+     * FCM 到达时加固：临时功耗白名单 + 确保 INCLUDE_STOPPED。
+     * 不在 AMS hook 内再调 startProcessLocked，避免重入死锁。
+     */
+    private void forceStartProcess(String pkg) {
+        try {
+            addToPowerAllowlist(pkg, 5 * 60 * 1000L);
+            printLog("FCM 冷启动加固: " + pkg, true);
+        } catch (Throwable e) {
+            printLog("forceStartProcess error " + pkg + ": " + e.getMessage());
+        }
     }
 
     private void addToPowerAllowlist(String pkg, long durationMs) {
@@ -592,6 +656,7 @@ public class GmsKeepAliveFix extends XposedModule {
                                         // 确保 stopped 应用能被 startService
                                         intent.addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES);
                                     }
+                                    forceStartProcess(pkg);
                                     printLog("AMS " + mn + " FCM 服务放行: " + pkg, true);
                                 }
                             }
