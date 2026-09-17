@@ -113,6 +113,22 @@ public final class XposedBridge {
         throw new IllegalArgumentException("Unsupported member type: " + method);
     }
 
+    /**
+     * 去优化（反内联）：短方法被调用方内联后 hook 不会触发。
+     * 通过反射调用，兼容不同 libxposed API 版本。
+     */
+    public static boolean deoptimize(Member member) {
+        ensureInit();
+        try {
+            Method m = xposedInterface.getClass().getMethod("deoptimize", java.lang.reflect.Executable.class);
+            Object result = m.invoke(xposedInterface, (java.lang.reflect.Executable) member);
+            return result instanceof Boolean ? (Boolean) result : true;
+        } catch (Throwable e) {
+            log("deoptimize 不可用: " + e.getMessage());
+            return false;
+        }
+    }
+
     static final class HookHandleWrapper {
         private final Member member;
         private final XC_MethodHook callback;

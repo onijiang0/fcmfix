@@ -9,6 +9,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.UserManager;
@@ -59,6 +60,28 @@ public abstract class XposedModule {
 
     public static void setSelfPackageName(String packageName) {
         selfPackageName = packageName;
+    }
+
+    /**
+     * system_server 中 attachBaseContext 可能装得太晚。
+     * XposedMain 在 onSystemServerStarting 主动注入系统上下文。
+     */
+    public static void initSystemServerContext(Context systemContext) {
+        if (context != null || systemContext == null) {
+            return;
+        }
+        context = systemContext;
+        try {
+            if (context.getSystemService(UserManager.class).isUserUnlocked()) {
+                callAllOnCanReadConfig();
+            } else {
+                IntentFilter userUnlockIntentFilter = new IntentFilter();
+                userUnlockIntentFilter.addAction(Intent.ACTION_USER_UNLOCKED);
+                context.registerReceiver(unlockBroadcastReceive, userUnlockIntentFilter);
+            }
+        } catch (Throwable e) {
+            printLog("initSystemServerContext: " + e.getMessage());
+        }
     }
 
     private static void initContext(final ClassLoader classLoader) {
@@ -194,11 +217,59 @@ public abstract class XposedModule {
                         config.put("init", true);
                     } catch (Throwable e) {
                         printLog("通过现代Xposed API读取配置失败: " + e.getMessage());
+                        if (loadConfigFromProvider()) {
+                            printLog("已通过 ConfigProvider 兜底加载配置, allowList size: " + (allowList == null ? 0 : allowList.size()));
+                        }
                     }
                     loadConfigThread = null;
                 }
             };
             loadConfigThread.start();
+        }
+    }
+
+    private static boolean loadConfigFromProvider() {
+        try {
+            if (context == null) {
+                return false;
+            }
+            Uri uri = Uri.parse("content://com.kooritea.fcmfix.provider");
+            java.util.HashSet<String> newAllow = new java.util.HashSet<>();
+            boolean init = false;
+            try (android.database.Cursor cursor = context.getContentResolver().query(uri, null, null, null, null)) {
+                if (cursor == null) {
+                    return false;
+                }
+                int keyIdx = cursor.getColumnIndex("key");
+                int valueIdx = cursor.getColumnIndex("value");
+                if (keyIdx < 0 || valueIdx < 0) {
+                    return false;
+                }
+                while (cursor.moveToNext()) {
+                    String key = cursor.getString(keyIdx);
+                    String value = cursor.getString(valueIdx);
+                    if ("init".equals(key)) {
+                        init = true;
+                    } else if ("allowList".equals(key) && value != null) {
+                        newAllow.add(value);
+                    } else if ("disableAutoCleanNotification".equals(key)) {
+                        config.put("disableAutoCleanNotification", "1".equals(value));
+                    } else if ("includeIceBoxDisableApp".equals(key)) {
+                        config.put("includeIceBoxDisableApp", "1".equals(value));
+                    } else if ("noResponseNotification".equals(key)) {
+                        config.put("noResponseNotification", "1".equals(value));
+                    }
+                }
+            }
+            if (!init) {
+                return false;
+            }
+            allowList = newAllow;
+            config.put("init", true);
+            return true;
+        } catch (Throwable e) {
+            printLog("ConfigProvider 兜底失败: " + e.getMessage());
+            return false;
         }
     }
 

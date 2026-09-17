@@ -38,6 +38,11 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
+import java.io.BufferedReader;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.text.Collator;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -115,6 +120,7 @@ public class MainActivity extends AppCompatActivity {
         ensureDefaultConfigValues();
         SharedPreferences pref = getRemotePreferencesOrNull();
         if (pref == null) {
+            loadConfigFromLocalJson();
             return;
         }
         this.allowList.clear();
@@ -126,6 +132,33 @@ public class MainActivity extends AppCompatActivity {
             this.config.put("noResponseNotification", pref.getBoolean("noResponseNotification", false));
         } catch (JSONException e) {
             Log.e("loadRemoteConfig", e.toString());
+        }
+    }
+
+    private void loadConfigFromLocalJson() {
+        ensureDefaultConfigValues();
+        try {
+            FileInputStream fis = openFileInput("config.json");
+            BufferedReader reader = new BufferedReader(new InputStreamReader(fis, StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder();
+            String line = reader.readLine();
+            while (line != null) {
+                sb.append(line).append('\n');
+                line = reader.readLine();
+            }
+            reader.close();
+            JSONObject json = new JSONObject(sb.toString());
+            JSONArray list = json.getJSONArray("allowList");
+            this.allowList.clear();
+            for (int i = 0; i < list.length(); i++) {
+                this.allowList.add(list.getString(i));
+            }
+            this.config.put("allowList", new JSONArray(this.allowList));
+            this.config.put("disableAutoCleanNotification", json.getBoolean("disableAutoCleanNotification"));
+            this.config.put("includeIceBoxDisableApp", json.getBoolean("includeIceBoxDisableApp"));
+            this.config.put("noResponseNotification", json.getBoolean("noResponseNotification"));
+        } catch (Throwable e) {
+            Log.e("loadLocalConfig", e.toString());
         }
     }
 
@@ -305,24 +338,42 @@ public class MainActivity extends AppCompatActivity {
 
     private void updateConfig(){
         try {
-            SharedPreferences pref = getRemotePreferencesOrNull();
-            if (pref == null) {
-                throw new IllegalStateException("XposedService 未连接，无法写入远程配置");
-            }
             this.config.put("allowList", new JSONArray(this.allowList));
-            boolean saved = pref.edit()
-                    .putBoolean("init", true)
-                    .putStringSet("allowList", new HashSet<>(this.allowList))
-                    .putBoolean("disableAutoCleanNotification", this.config.getBoolean("disableAutoCleanNotification"))
-                    .putBoolean("includeIceBoxDisableApp", this.config.getBoolean("includeIceBoxDisableApp"))
-                    .putBoolean("noResponseNotification", this.config.getBoolean("noResponseNotification"))
-                    .commit();
-            if (!saved) {
-                throw new IllegalStateException("配置写入失败");
+        } catch (JSONException e) {
+            Log.e("updateConfig", e.toString());
+            new AlertDialog.Builder(this).setTitle("更新配置文件失败").setMessage(e.getMessage()).show();
+            return;
+        }
+        writeLocalConfigJson();
+        boolean remoteSaved = false;
+        try {
+            SharedPreferences pref = getRemotePreferencesOrNull();
+            if (pref != null) {
+                remoteSaved = pref.edit()
+                        .putBoolean("init", true)
+                        .putStringSet("allowList", new HashSet<>(this.allowList))
+                        .putBoolean("disableAutoCleanNotification", this.config.getBoolean("disableAutoCleanNotification"))
+                        .putBoolean("includeIceBoxDisableApp", this.config.getBoolean("includeIceBoxDisableApp"))
+                        .putBoolean("noResponseNotification", this.config.getBoolean("noResponseNotification"))
+                        .commit();
             }
-            this.sendBroadcast(new Intent("com.kooritea.fcmfix.update.config"));
         } catch (Throwable e) {
-            Log.e("updateConfig",e.toString());
+            Log.e("updateConfig", "写入远程配置失败: " + e);
+        }
+        this.sendBroadcast(new Intent("com.kooritea.fcmfix.update.config"));
+        if (!remoteSaved) {
+            Log.i("updateConfig", "已写入本地 config.json（ConfigProvider 兜底）");
+        }
+    }
+
+    private void writeLocalConfigJson() {
+        try {
+            FileOutputStream fos = openFileOutput("config.json", MODE_PRIVATE);
+            fos.write(this.config.toString().getBytes(StandardCharsets.UTF_8));
+            fos.flush();
+            fos.close();
+        } catch (Throwable e) {
+            Log.e("updateConfig", e.toString());
             new AlertDialog.Builder(this).setTitle("更新配置文件失败").setMessage(e.getMessage()).show();
         }
     }
