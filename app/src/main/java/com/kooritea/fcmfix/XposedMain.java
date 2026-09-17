@@ -7,6 +7,7 @@ import com.kooritea.fcmfix.libxposed.XposedHelpers;
 import com.kooritea.fcmfix.xposed.AutoStartFix;
 import com.kooritea.fcmfix.xposed.BroadcastFix;
 import com.kooritea.fcmfix.xposed.GmsDeliveryFix;
+import com.kooritea.fcmfix.xposed.HyperOsGreezeFix;
 import com.kooritea.fcmfix.xposed.KeepNotification;
 import com.kooritea.fcmfix.xposed.MiuiLocalNotificationFix;
 import com.kooritea.fcmfix.xposed.OplusProxyFix;
@@ -29,6 +30,7 @@ public class XposedMain extends io.github.libxposed.api.XposedModule {
         safeInit(() -> new AutoStartFix(classLoader), "AutoStartFix");
         safeInit(() -> new KeepNotification(classLoader), "KeepNotification");
         safeInit(() -> new OplusProxyFix(classLoader), "OplusProxyFix");
+        safeInit(() -> new HyperOsGreezeFix(classLoader), "HyperOsGreezeFix");
         // system_server 中 attachBaseContext 可能装得太晚，主动拿系统上下文
         initSystemServerContext(classLoader);
     }
@@ -46,6 +48,10 @@ public class XposedMain extends io.github.libxposed.api.XposedModule {
         if ("com.miui.powerkeeper".equals(param.getPackageName()) && param.isFirstPackage()) {
             XposedModule.setSelfPackageName("com.miui.powerkeeper");
             safeInit(() -> new PowerkeeperFix(param.getClassLoader()), "PowerkeeperFix");
+            safeInit(() -> {
+                HyperOsGreezeFix greeze = new HyperOsGreezeFix(param.getClassLoader());
+                greeze.hookPowerkeeper(param.getClassLoader());
+            }, "HyperOsGreezeFix#powerkeeper");
         }
     }
 

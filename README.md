@@ -30,6 +30,19 @@ fcm是在Android中由google维护的一条介于google服务器与gms应用之�
 - 新增 GMS 进程侧 `GmsDeliveryFix`：在发送源头补 `FLAG_INCLUDE_STOPPED_PACKAGES`
 - 远程 SharedPreferences 失败时可通过 ConfigProvider 读取本地 `config.json`
 
+### HyperOS / 澎湃（HyperGreeze）
+
+从 HyperFCMLive 移植的系统侧防护（`HyperOsGreezeFix`），覆盖 HyperOS 4 常见掐推送路径：
+
+- `GreezeManagerService`：`isAllowBroadcast` / `deferBroadcastForMiui` / `triggerGMSLimitAction`
+- `DomesticPolicyManager.deferBroadcast`、`InternationalPolicyManager.isPushApp`
+- `ListAppsManager`：GMS 移出系统黑名单、加入数据白名单
+- `AwareResourceControl`：断网黑名单与 GMS 限制开关
+- `ProcessPolicy` / `ProcessCleanerBase`：白名单、禁止强停 GMS
+- powerkeeper：`GmsObserver` / `NetdExecutor` 心跳、网络、wakelock 限流 no-op
+
+作用域仍需 `system` + `com.miui.powerkeeper`。
+
 ### 已知问题
 
 - 非miui/hyperos/OxygenOS15/ColorOS15/16系统可能需要给予目标应用类似允许自启动的权限，以及电池选项设置为不优化
