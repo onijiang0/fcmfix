@@ -135,17 +135,10 @@ public abstract class XposedModule {
 
     protected static void printLog(String text, Boolean isDiagnosticsLog) {
         String line = "[" + getSelfPackageName() + "]" + text;
+        // system_server 里 sendBroadcast 会 without a qualified user，诊断广播不可靠；
+        // 统一写 logcat(tag=FcmFix) + Xposed 日志(tag=fcmfix)，用 adb logcat 抓。
         Log.i(TAG, line);
         XposedBridge.log("[fcmfix] " + line);
-        if (isDiagnosticsLog && context != null) {
-            try {
-                Intent log = new Intent("com.kooritea.fcmfix.log");
-                log.putExtra("text", line);
-                // system_server 必须带 UserHandle，否则只打 without a qualified user 警告
-                context.sendBroadcastAsUser(log, android.os.UserHandle.ALL);
-            } catch (Throwable ignored) {
-            }
-        }
     }
 
     protected void checkUserDeviceUnlockAndUpdateConfig() {
