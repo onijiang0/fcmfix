@@ -222,6 +222,7 @@ public class ReconnectManagerFix extends XposedModule {
                             if (nextConnectionTime != 0 && nextConnectionTime - SystemClock.elapsedRealtime() < -60000) {
                                 context.sendBroadcast(new Intent("com.google.android.intent.action.GCM_RECONNECT"));
                                 printLog("Send broadcast GCM_RECONNECT", true);
+                                com.kooritea.fcmfix.util.DiagLog.write("Reconnect", "GCM_RECONNECT sent");
                             }
                             timer.cancel();
                         }
@@ -344,6 +345,7 @@ public class ReconnectManagerFix extends XposedModule {
                             try {
                                 context.sendBroadcast(new Intent("com.google.android.intent.action.GCM_RECONNECT"));
                                 printLog("Send broadcast GCM_RECONNECT", true);
+                                com.kooritea.fcmfix.util.DiagLog.write("Reconnect", "GCM_RECONNECT sent");
                             } catch (Throwable e) {
                                 printLog("GCM_RECONNECT failed: " + e.getMessage());
                             }

@@ -8,10 +8,24 @@ android {
         applicationId "com.kooritea.fcmfix"
         minSdkVersion 29
         targetSdkVersion 34
-        versionCode 63
-        versionName "dev-a17-r9-core"
+        versionCode 64
+        versionName "dev-a17-r10"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        buildConfigField "boolean", "DIAG", "false"
+    }
+
+    flavorDimensions "dist"
+    productFlavors {
+        stable {
+            dimension "dist"
+            buildConfigField "boolean", "DIAG", "false"
+        }
+        diag {
+            dimension "dist"
+            versionNameSuffix "-diag"
+            buildConfigField "boolean", "DIAG", "true"
+        }
     }
 
     buildTypes {
@@ -27,6 +41,9 @@ android {
 
     lint {
         checkReleaseBuilds = false
+    }
+    buildFeatures {
+        buildConfig true
     }
 }
 

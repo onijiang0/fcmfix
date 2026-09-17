@@ -139,6 +139,7 @@ public abstract class XposedModule {
         // 统一写 logcat(tag=FcmFix) + Xposed 日志(tag=fcmfix)，用 adb logcat 抓。
         Log.i(TAG, line);
         XposedBridge.log("[fcmfix] " + line);
+        com.kooritea.fcmfix.util.DiagLog.write(TAG, line);
     }
 
     protected void checkUserDeviceUnlockAndUpdateConfig() {

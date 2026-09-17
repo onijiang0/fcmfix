@@ -412,6 +412,7 @@ public class MainActivity extends AppCompatActivity {
             Log.e("updateConfig", "写入远程配置失败: " + e);
         }
         this.sendBroadcast(new Intent("com.kooritea.fcmfix.update.config"));
+        com.kooritea.fcmfix.util.DiagLog.write("UI", "updateConfig allowList=" + this.allowList.size());
         if (!remoteSaved) {
             Log.i("updateConfig", "已写入本地 config.json（ConfigProvider 兜底）");
         }

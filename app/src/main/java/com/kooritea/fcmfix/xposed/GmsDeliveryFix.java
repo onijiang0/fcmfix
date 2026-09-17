@@ -102,6 +102,7 @@ public class GmsDeliveryFix extends XposedModule {
             }
             intent.addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES);
             printLog("GMS 侧加入 FLAG_INCLUDE_STOPPED_PACKAGES: " + target, true);
+            com.kooritea.fcmfix.util.DiagLog.write("GmsDelivery", "INCLUDE_STOPPED " + target + " action=" + intent.getAction());
         } catch (Throwable e) {
             printLog("GmsDeliveryFix onBroadcastSent error: " + e.getMessage());
         }
