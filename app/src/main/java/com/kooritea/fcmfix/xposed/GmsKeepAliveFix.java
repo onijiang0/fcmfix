@@ -43,6 +43,167 @@ public class GmsKeepAliveFix extends XposedModule {
         hookAlarmManager();
         hookNetworkPolicy();
         hookAmsServiceStart();
+        hookScreenOffProtection();
+    }
+
+    private boolean screenOffKeepAliveRunning = false;
+
+    /**
+     * 锁屏/灭屏后 HyperOS 会冻结 GMS、断后台网络、进 Doze。
+     * 灭屏瞬间重新打功耗白名单，并周期续期。
+     */
+    private void hookScreenOffProtection() {
+        // PowerManagerService.goToSleep / onWakefulnessChanged
+        Class<?> pms = XposedHelpers.findClassIfExists("com.android.server.power.PowerManagerService", classLoader);
+        if (pms != null) {
+            for (String mn : new String[]{"goToSleep", "goToSleepNoUpdateLocked", "updateWakefulnessLocked", "setWakefulnessLocked"}) {
+                Method m = XposedUtils.tryFindMethodMostParam(pms, mn);
+                if (m == null) {
+                    continue;
+                }
+                XposedBridge.hookMethod(m, new XC_MethodHook() {
+                    @Override
+                    protected void afterHookedMethod(MethodHookParam param) {
+                        if (!isBootComplete) {
+                            return;
+                        }
+                        printLog("灭屏路径触发: " + mn + "，续期 GMS 白名单", true);
+                        reassertGmsAlive("screen-off");
+                        startScreenOffKeepAlive();
+                    }
+                });
+                printLog("KeepAlive 已挂接 PowerManagerService#" + mn);
+            }
+        }
+
+        // DeviceIdleController：深度 Doze 步进时再补白名单
+        Class<?> dic = XposedHelpers.findClassIfExists("com.android.server.DeviceIdleController", classLoader);
+        if (dic != null) {
+            for (String mn : new String[]{"stepIdleStateLocked", "exitMaintenanceEarlyIfNeededLocked", "becomeActiveLocked"}) {
+                Method m = XposedUtils.tryFindMethodMostParam(dic, mn);
+                if (m == null) {
+                    continue;
+                }
+                XposedBridge.hookMethod(m, new XC_MethodHook() {
+                    @Override
+                    protected void afterHookedMethod(MethodHookParam param) {
+                        if (!isBootComplete) {
+                            return;
+                        }
+                        printLog("DeviceIdle 步进: " + mn + "，续期 GMS", true);
+                        reassertGmsAlive("doze-step");
+                    }
+                });
+                printLog("KeepAlive 已挂接 DeviceIdleController#" + mn);
+            }
+        }
+
+        // HyperOS 灭屏冻结：GreezeManagerService
+        Class<?> gmsSvc = XposedHelpers.findClassIfExists("com.miui.server.greeze.GreezeManagerService", classLoader);
+        if (gmsSvc != null) {
+            for (String mn : new String[]{"freezePackages", "freezeApp", "freezeUid", "onScreenOff", "screenOff", "handleScreenOff", "checkFreeze"}) {
+                Method m = XposedUtils.tryFindMethodMostParam(gmsSvc, mn);
+                if (m == null) {
+                    continue;
+                }
+                XposedBridge.hookMethod(m, new XC_MethodHook() {
+                    @Override
+                    protected void beforeHookedMethod(MethodHookParam param) {
+                        if (!isBootComplete || param.args == null) {
+                            return;
+                        }
+                        for (Object a : param.args) {
+                            if (a instanceof String && isGms((String) a)) {
+                                printLog("Greeze 灭屏冻结 GMS 已拦截: " + mn, true);
+                                param.setResult(null);
+                                return;
+                            }
+                            if (a instanceof Integer) {
+                                // uid：GMS 常见 uid 范围太宽，只在参数含包名时拦
+                            }
+                        }
+                    }
+                });
+                printLog("KeepAlive 已挂接 Greeze#" + mn);
+            }
+        }
+
+        // 监听 ACTION_SCREEN_OFF，续期
+        try {
+            if (context != null) {
+                android.content.IntentFilter f = new android.content.IntentFilter();
+                f.addAction(Intent.ACTION_SCREEN_OFF);
+                f.addAction(Intent.ACTION_SCREEN_ON);
+                context.registerReceiver(new android.content.BroadcastReceiver() {
+                    @Override
+                    public void onReceive(Context c, Intent i) {
+                        if (!isBootComplete) {
+                            return;
+                        }
+                        if (Intent.ACTION_SCREEN_OFF.equals(i.getAction())) {
+                            printLog("SCREEN_OFF：立即续期 GMS 并启动保活", true);
+                            reassertGmsAlive("SCREEN_OFF");
+                            startScreenOffKeepAlive();
+                        } else {
+                            printLog("SCREEN_ON", true);
+                            reassertGmsAlive("SCREEN_ON");
+                        }
+                    }
+                }, f);
+                printLog("KeepAlive 已注册 SCREEN_OFF 监听");
+            }
+        } catch (Throwable e) {
+            printLog("SCREEN_OFF 注册失败: " + e.getMessage());
+        }
+    }
+
+    private synchronized void startScreenOffKeepAlive() {
+        if (screenOffKeepAliveRunning) {
+            return;
+        }
+        screenOffKeepAliveRunning = true;
+        Thread t = new Thread(() -> {
+            try {
+                // 灭屏后前 15 分钟每 90s 续期一次（最容易被掐的窗口）
+                for (int i = 0; i < 10; i++) {
+                    Thread.sleep(90_000);
+                    reassertGmsAlive("screen-off-tick-" + i);
+                    // 若已亮屏则退出由 SCREEN_ON 再续一次即可
+                    try {
+                        if (context != null) {
+                            Object pm = context.getSystemService(Context.POWER_SERVICE);
+                            if (pm != null && Boolean.TRUE.equals(XposedHelpers.callMethod(pm, "isInteractive"))) {
+                                printLog("已亮屏，停止灭屏保活循环", true);
+                                break;
+                            }
+                        }
+                    } catch (Throwable ignored) {
+                    }
+                }
+            } catch (Throwable ignored) {
+            } finally {
+                screenOffKeepAliveRunning = false;
+            }
+        }, "fcmfix-screen-off-keepalive");
+        t.setDaemon(true);
+        t.start();
+    }
+
+    /** 统一续期：功耗白名单 + 设备空闲白名单。 */
+    private void reassertGmsAlive(String reason) {
+        addToPowerAllowlist(GMS, 10 * 60 * 1000L);
+        try {
+            Class<?> dic = XposedHelpers.findClassIfExists("com.android.server.DeviceIdleController", classLoader);
+            if (dic != null && context != null) {
+                // 通过系统服务调用
+                Object svc = context.getSystemService("deviceidle");
+                if (svc != null) {
+                    XposedHelpers.callMethod(svc, "addPowerSaveWhitelistApp", GMS);
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        printLog("reassertGmsAlive[" + reason + "]", true);
     }
 
     private static boolean isGms(String pkg) {
