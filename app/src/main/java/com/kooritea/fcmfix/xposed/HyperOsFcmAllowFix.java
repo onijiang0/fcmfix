@@ -1,6 +1,8 @@
 package com.kooritea.fcmfix.xposed;
 
+import android.content.Context;
 import android.content.Intent;
+import android.os.Build;
 
 import com.kooritea.fcmfix.libxposed.XC_MethodHook;
 import com.kooritea.fcmfix.libxposed.XposedBridge;
@@ -50,6 +52,64 @@ public class HyperOsFcmAllowFix extends XposedModule {
         return pkg != null && targetIsAllow(pkg);
     }
 
+    /** Doze/锁屏 No response：FCM 放行时给目标临时功耗白名单，便于 App 处理广播。 */
+    private void grantPowerAllow(String pkg) {
+        try {
+            Context ctx = context;
+            if (ctx == null || pkg == null || Build.VERSION.SDK_INT < 31) {
+                return;
+            }
+            Class<?> pemCls = XposedHelpers.findClassIfExists("android.os.PowerExemptionManager", classLoader);
+            if (pemCls == null) {
+                return;
+            }
+            Object pem = null;
+            try {
+                pem = XposedHelpers.callMethod(ctx, "getSystemService", "power_exemption");
+            } catch (Throwable ignored) {
+            }
+            if (pem == null) {
+                try {
+                    pem = XposedHelpers.callStaticMethod(pemCls, "getInstance", ctx);
+                } catch (Throwable ignored) {
+                }
+            }
+            if (pem == null) {
+                try {
+                    pem = pemCls.getConstructor(Context.class).newInstance(ctx);
+                } catch (Throwable ignored) {
+                    return;
+                }
+            }
+            int reason = 200;
+            for (String rn : new String[]{"REASON_GMS", "REASON_PUSH", "REASON_NOTIFICATION"}) {
+                try {
+                    reason = pemCls.getField(rn).getInt(null);
+                    break;
+                } catch (Throwable ignored) {
+                }
+            }
+            try {
+                XposedHelpers.callMethod(pem, "addToTemporaryAllowList", pkg, reason, "FCMFcmAllow", 3 * 60 * 1000L);
+                printLog("HyperAllow PowerExemption " + pkg, true);
+                com.kooritea.fcmfix.util.DiagLog.write("HyperAllow", "powerAllow " + pkg);
+            } catch (Throwable e1) {
+                try {
+                    XposedHelpers.callMethod(pem, "addToAllowlist", pkg);
+                    printLog("HyperAllow PowerAllowlist " + pkg, true);
+                } catch (Throwable ignored) {
+                }
+            }
+        } catch (Throwable e) {
+            printLog("grantPowerAllow error: " + e.getMessage());
+        }
+    }
+
+    private static String pkgOf(Intent intent) {
+        return intent.getComponent() != null
+                ? intent.getComponent().getPackageName() : intent.getPackage();
+    }
+
     private void start() {
         Class<?> gms = XposedHelpers.findClassIfExists("com.miui.server.greeze.GreezeManagerService", classLoader);
         if (gms != null) {
@@ -78,6 +138,7 @@ public class HyperOsFcmAllowFix extends XposedModule {
                             if (a instanceof Intent && shouldAllow((Intent) a)) {
                                 printLog("HyperOS FCM allow checkApplicationAutoStart", true);
                                 com.kooritea.fcmfix.util.DiagLog.write("HyperAllow", "autoStart allow");
+                                grantPowerAllow(pkgOf((Intent) a));
                                 param.setResult(true);
                                 return;
                             }
@@ -87,6 +148,7 @@ public class HyperOsFcmAllowFix extends XposedModule {
                                     Object intent = XposedHelpers.getObjectField(a, "intent");
                                     if (intent instanceof Intent && shouldAllow((Intent) intent)) {
                                         printLog("HyperOS FCM allow checkApplicationAutoStart(record)", true);
+                                        grantPowerAllow(pkgOf((Intent) intent));
                                         param.setResult(true);
                                         return;
                                     }
@@ -120,6 +182,7 @@ public class HyperOsFcmAllowFix extends XposedModule {
                     if (a instanceof Intent && shouldAllow((Intent) a)) {
                         printLog("HyperOS FCM allow " + clazz.getSimpleName() + "#" + name, true);
                         com.kooritea.fcmfix.util.DiagLog.write("HyperAllow", name + " true");
+                        grantPowerAllow(pkgOf((Intent) a));
                         param.setResult(true);
                         return;
                     }
