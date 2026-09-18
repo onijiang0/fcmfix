@@ -8,6 +8,7 @@ import com.kooritea.fcmfix.xposed.AutoStartFix;
 import com.kooritea.fcmfix.xposed.BroadcastFix;
 import com.kooritea.fcmfix.xposed.GmsDeliveryFix;
 import com.kooritea.fcmfix.xposed.GmsKeepAliveFix;
+import com.kooritea.fcmfix.xposed.HyperOs4GmsNetFix;
 import com.kooritea.fcmfix.xposed.HyperOsFcmAllowFix;
 import com.kooritea.fcmfix.xposed.HyperOsGreezeFix;
 import com.kooritea.fcmfix.xposed.KeepNotification;
@@ -32,8 +33,10 @@ public class XposedMain extends io.github.libxposed.api.XposedModule {
         safeInit(() -> new AutoStartFix(classLoader), "AutoStartFix");
         safeInit(() -> new KeepNotification(classLoader), "KeepNotification");
         safeInit(() -> new OplusProxyFix(classLoader), "OplusProxyFix");
-        // 仅 FCM+allowList 的 HyperOS 放行，不再 no-op GMS 建网/闹钟
+        // 仅 FCM+allowList 的 HyperOS 放行
         safeInit(() -> new HyperOsFcmAllowFix(classLoader), "HyperOsFcmAllowFix");
+        // 澎湃 OS4：只保 GMS 网络（对照 HyperFCMLive 断网路径）
+        safeInit(() -> new HyperOs4GmsNetFix(classLoader), "HyperOs4GmsNetFix");
         // HyperOsGreezeFix / GmsKeepAliveFix 激进 hook 会干扰其它应用 FCM 投递
         // safeInit(() -> new HyperOsGreezeFix(classLoader), "HyperOsGreezeFix");
         // safeInit(() -> new GmsKeepAliveFix(classLoader), "GmsKeepAliveFix");
@@ -54,6 +57,10 @@ public class XposedMain extends io.github.libxposed.api.XposedModule {
         if ("com.miui.powerkeeper".equals(param.getPackageName()) && param.isFirstPackage()) {
             XposedModule.setSelfPackageName("com.miui.powerkeeper");
             safeInit(() -> new PowerkeeperFix(param.getClassLoader()), "PowerkeeperFix");
+            safeInit(() -> {
+                HyperOs4GmsNetFix net = new HyperOs4GmsNetFix(param.getClassLoader());
+                net.hookPowerkeeper(param.getClassLoader());
+            }, "HyperOs4GmsNetFix#powerkeeper");
         }
     }
 
