@@ -8,6 +8,7 @@ import com.kooritea.fcmfix.xposed.AutoStartFix;
 import com.kooritea.fcmfix.xposed.BroadcastFix;
 import com.kooritea.fcmfix.xposed.GmsDeliveryFix;
 import com.kooritea.fcmfix.xposed.GmsKeepAliveFix;
+import com.kooritea.fcmfix.xposed.HyperOsFcmAllowFix;
 import com.kooritea.fcmfix.xposed.HyperOsGreezeFix;
 import com.kooritea.fcmfix.xposed.KeepNotification;
 import com.kooritea.fcmfix.xposed.MiuiLocalNotificationFix;
@@ -31,8 +32,9 @@ public class XposedMain extends io.github.libxposed.api.XposedModule {
         safeInit(() -> new AutoStartFix(classLoader), "AutoStartFix");
         safeInit(() -> new KeepNotification(classLoader), "KeepNotification");
         safeInit(() -> new OplusProxyFix(classLoader), "OplusProxyFix");
+        // 仅 FCM+allowList 的 HyperOS 放行，不再 no-op GMS 建网/闹钟
+        safeInit(() -> new HyperOsFcmAllowFix(classLoader), "HyperOsFcmAllowFix");
         // HyperOsGreezeFix / GmsKeepAliveFix 激进 hook 会干扰其它应用 FCM 投递
-        // （现象：仅 Telegram 能推，TikTok/Gmail 不再收到）。默认关闭，保核心广播路径。
         // safeInit(() -> new HyperOsGreezeFix(classLoader), "HyperOsGreezeFix");
         // safeInit(() -> new GmsKeepAliveFix(classLoader), "GmsKeepAliveFix");
         // system_server 中 attachBaseContext 可能装得太晚，主动拿系统上下文
